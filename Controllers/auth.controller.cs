@@ -66,7 +66,8 @@ namespace Digital_Wallet_System.Controllers
             var claims = new[]
             {
                 new Claim(JwtRegisteredClaimNames.Sub, user.Email),
-                new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString())
+                new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()),
+                new Claim(ClaimTypes.Name, user.Id.ToString())
             };
 
             var token = new JwtSecurityToken(

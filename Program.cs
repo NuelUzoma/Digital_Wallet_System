@@ -15,6 +15,10 @@ internal class Program
         // Adding services to the controller
         builder.Services.AddControllers();
 
+        // Add logging
+        builder.Logging.ClearProviders();
+        builder.Logging.AddConsole();
+
         builder.Services.AddEndpointsApiExplorer();
 
         // Database Services for the tables
