@@ -1,11 +1,9 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Logging;
 using System.Security.Claims;
 using Digital_Wallet_System.Data;
 using Digital_Wallet_System.Dtos;
 using Digital_Wallet_System.Models;
-using Digital_Wallet_System.Services;
 
 namespace Digital_Wallet_System.Controllers
 {
@@ -14,12 +12,10 @@ namespace Digital_Wallet_System.Controllers
     public class WalletController: ControllerBase
     {
         private readonly ApplicationDbContext _context;
-        private readonly ILogger<WalletController> _logger;
 
-        public WalletController(ApplicationDbContext context, ILogger<WalletController> logger)
+        public WalletController(ApplicationDbContext context)
         {
             _context = context;
-            _logger = logger;
         }
 
         // Re-usable function to retrieve the userId from JWT payload
@@ -27,21 +23,17 @@ namespace Digital_Wallet_System.Controllers
         {
             // Get the logged-in user's ID from the JWT token
             // var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
-            var claimsIdentity = this.User.Identity as ClaimsIdentity;
+            var claimsIdentity = User.Identity as ClaimsIdentity;
             var userId = claimsIdentity.FindFirst(ClaimTypes.Name)?.Value;
-
-            _logger.LogInformation("User ID extracted from token: {userId}", userId);
 
             if (string.IsNullOrEmpty(userId))
             {
                 // Return unauthorized if UserId is not found in the token
-                _logger.LogWarning("User ID is not found in the token.");
                 return Unauthorized("User ID is not found in the token.");
             }
 
             if (!int.TryParse(userId, out int userIdInt))
             {
-                _logger.LogWarning("Invalid User ID in token: {userId}", userId);
                 return BadRequest("Invalid User ID in token.");
             }
 
@@ -55,29 +47,6 @@ namespace Digital_Wallet_System.Controllers
             {
                 throw new ArgumentException("Deposit amount must be a positive integer greater than 0.");
             }
-        }
-
-        // Retrieve the logged in user details
-        [HttpGet("user")]
-        public async Task<ActionResult<User>> GetLoggedInUser()
-        {
-            // Retrieve userId from the <actionresult> function
-            var userIdResult = GetUserId();
-            if (userIdResult.Result is UnauthorizedObjectResult || userIdResult.Result is BadRequestObjectResult)
-            {
-                return userIdResult.Result; // Return the error result
-            }
-
-            // Integer value for the userId
-            int userId = userIdResult.Value;
-
-            var user = await _context.Users.Include(u => u.Wallet).FirstOrDefaultAsync(u => u.Id == userId);
-            if (user == null)
-            {
-                return NotFound("User not found");
-            }
-
-            return Ok(user);
         }
 
         // Retrieve the wallet details by the logged-in user
@@ -104,6 +73,7 @@ namespace Digital_Wallet_System.Controllers
             return Ok(wallet);
         }
 
+        // Deposit funds into one's wallet
         [HttpPost("deposit")]
         public async Task<ActionResult<Wallet>> Deposit([FromBody] DepositRequest request)
         {
@@ -139,9 +109,10 @@ namespace Digital_Wallet_System.Controllers
             await _context.SaveChangesAsync();
 
             // Return the wallet balance
-            return Ok(new { user.Wallet.Balance }); // Not safe to return the wallet balance
+            return Ok(new { message = "Deposit Successful" });
         }
 
+        // Wallet to wallet transfer between users
         [HttpPost("transfer")]
         public async Task<ActionResult<Wallet>> Transfer([FromBody] TransferRequest request)
         {
@@ -169,6 +140,12 @@ namespace Digital_Wallet_System.Controllers
                 return NotFound("Recipient not found");
             }
 
+            // PROHIBIT same wallet transfer i.e same user
+            if (sender.Id == receiver.Id)
+            {
+                return BadRequest("Transfer to the same wallet is prohibited");
+            }
+
             // Validate amount to be transfered
             try
             {
@@ -192,7 +169,7 @@ namespace Digital_Wallet_System.Controllers
             // Save changes
             await _context.SaveChangesAsync();
 
-            return Ok(new { SenderBalance = sender.Wallet.Balance, RecipientBalance = receiver.Wallet.Balance });
+            return Ok(new { message = "Transfer Successful" });
         }
 
     }
