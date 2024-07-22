@@ -109,8 +109,13 @@ namespace Digital_Wallet_System.Controllers
             // Integer value for the userId
             int senderId = userIdResult.Value;
 
+            if (string.IsNullOrEmpty(request.IdempotencyKey))
+            {
+                return BadRequest("Idempotency key is required");
+            }
+
             
-            var transferResult = await _walletService.TransferFundsAsync(senderId, request.RecipientUserId, request.Amount);
+            var transferResult = await _walletService.TransferFundsAsync(senderId, request.RecipientUserId, request.Amount, request.IdempotencyKey);
             
             return transferResult switch
             {
@@ -120,6 +125,7 @@ namespace Digital_Wallet_System.Controllers
                 TransferResult.SameWalletTransfer => BadRequest("Transfer to the same wallet is prohibited"),
                 TransferResult.InsufficientFunds => BadRequest("Insufficient funds"),
                 TransferResult.InvalidAmount => BadRequest("Invalid transfer amount"),
+                TransferResult.AlreadyProcessed => Ok(new { message = "Transfer already processed" }),
                 TransferResult.UnknownError => StatusCode(500, "An unexpected error occurred"),
                 _ => StatusCode(500, "An unexpected error occurred"),
             };

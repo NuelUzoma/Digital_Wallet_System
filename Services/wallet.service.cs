@@ -1,16 +1,19 @@
 using Microsoft.EntityFrameworkCore;
 using Digital_Wallet_System.Data;
 using Digital_Wallet_System.Models;
+using StackExchange.Redis;
 
 namespace Digital_Wallet_System.Services
 {
     public class WalletService
     {
         private readonly ApplicationDbContext _context;
+        private readonly RedisService _redisService;
 
-        public WalletService(ApplicationDbContext context)
+        public WalletService(ApplicationDbContext context, RedisService redisService)
         {
             _context = context;
+            _redisService = redisService;
         }
 
         public async Task<Wallet> CreateWalletAsync(User user)
@@ -48,8 +51,17 @@ namespace Digital_Wallet_System.Services
         }
 
         // Wallet transfer logic
-        public async Task<TransferResult> TransferFundsAsync(int senderId, int recipientId, decimal amount)
+        public async Task<TransferResult> TransferFundsAsync(int senderId, int recipientId, decimal amount, string idempotencyKey)
         {
+            var redis = _redisService.GetDatabase();
+
+            // Check if request has been processed before with idempotency key
+            RedisValue existingValue = await redis.StringGetAsync(idempotencyKey);
+            if (existingValue.HasValue && existingValue == "processed")
+            {
+                return TransferResult.AlreadyProcessed;
+            }
+
             using var transaction = await _context.Database.BeginTransactionAsync();
 
             try
@@ -95,6 +107,9 @@ namespace Digital_Wallet_System.Services
                 _context.Transactions.Add(senderTransaction);
                 _context.Transactions.Add(recipientTransaction);
 
+                // If successful, set the idempotency key in Redis with a 30-second expiry
+                await redis.StringSetAsync(idempotencyKey, "processed", TimeSpan.FromSeconds(30));
+                
                 await _context.SaveChangesAsync(); // Save changes
                 await transaction.CommitAsync();
 
@@ -143,6 +158,7 @@ namespace Digital_Wallet_System.Services
             SameWalletTransfer,
             InsufficientFunds,
             InvalidAmount,
+            AlreadyProcessed,
             UnknownError
         }
     }
