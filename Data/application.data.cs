@@ -16,6 +16,17 @@ namespace Digital_Wallet_System.Data
         {
             base.OnModelCreating(modelBuilder);
 
+            // Make username unique
+            modelBuilder.Entity<User>()
+                .HasIndex(u => u.Username)
+                .IsUnique();
+            
+            // Make the email unique
+            modelBuilder.Entity<User>()
+                .HasIndex(u => u.Email)
+                .IsUnique();
+
+            // Wallet foreign key to User
             modelBuilder.Entity<User>()
                 .HasOne(u => u.Wallet)
                 .WithOne(w => w.User)
