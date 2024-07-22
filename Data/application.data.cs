@@ -11,6 +11,7 @@ namespace Digital_Wallet_System.Data
 
         public DbSet<User> Users { get; set; }
         public DbSet<Wallet> Wallets { get; set; }
+        public DbSet<Transaction> Transactions { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -32,9 +33,27 @@ namespace Digital_Wallet_System.Data
                 .WithOne(w => w.User)
                 .HasForeignKey<Wallet>(w => w.UserId);
             
+            // Transaction relationships
+            modelBuilder.Entity<Transaction>()
+                .HasOne(t => t.Sender)
+                .WithMany()
+                .HasForeignKey(t => t.SenderId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<Transaction>()
+                .HasOne(t => t.Recipient)
+                .WithMany()
+                .HasForeignKey(t => t.RecipientId)
+                .OnDelete(DeleteBehavior.Restrict);
+            
             // Specifying the precision and scale for the Balance property
             modelBuilder.Entity<Wallet>()
                 .Property(w => w.Balance)
+                .HasColumnType("decimal(18,2)");
+
+            // Specifying the precision and scale for the Amount property
+            modelBuilder.Entity<Transaction>()
+                .Property(t => t.Amount)
                 .HasColumnType("decimal(18,2)");
         }
     }
