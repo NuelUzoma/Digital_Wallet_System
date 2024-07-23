@@ -176,9 +176,21 @@ namespace Digital_Wallet_System.Controllers
             // Integer value for the userId
             int userId = userIdResult.Value;
 
+            // Deposits
             var deposits = await _walletService.GetDepositTransactionsAsync(userId);
 
-            return Ok(deposits);
+            // Modify server response
+            var depositResponses = deposits.Select(d => new DepositResponse
+            {
+                Id = d.Id,
+                UserId = d.UserId,
+                Amount = d.Amount,
+                Timestamp = d.Timestamp,
+                Status = d.Status,
+                Reference = d.Reference
+            }).ToList();
+
+            return Ok(depositResponses);
         }
 
         // Retrieve debit wallet transfer transactions

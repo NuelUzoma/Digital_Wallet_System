@@ -2,6 +2,8 @@ using Microsoft.EntityFrameworkCore;
 using StackExchange.Redis;
 using Digital_Wallet_System.Data;
 using Digital_Wallet_System.Models;
+using System.Security.Cryptography;
+using System.Text;
 
 namespace Digital_Wallet_System.Services
 {
@@ -45,6 +47,7 @@ namespace Digital_Wallet_System.Services
                 throw new InvalidOperationException("Invalid Deposit Amount");
 
             var encryptedReference = _referenceProtector.Protect(response.Data.Reference);
+            var referenceHash = ComputeHash(response.Data.Reference);
 
             // Store pending transaction
             var transaction = new DepositTransaction
@@ -54,7 +57,8 @@ namespace Digital_Wallet_System.Services
                 Timestamp = DateTime.UtcNow.AddHours(1),
                 TransactionType = "Deposit",
                 Status = "Pending",
-                Reference = encryptedReference
+                Reference = encryptedReference,
+                ReferenceHash = referenceHash
             };
 
             _context.DepositTransactions.Add(transaction);
@@ -67,14 +71,21 @@ namespace Digital_Wallet_System.Services
         // Verify paystack deposit logic
         public async Task<DepositResult> VerifyandCompleteDepositAsync(string reference, int userId)
         {
+            // Reference Hash
+            var referenceHash = ComputeHash(reference);
+
             // Decrypt all references in the database to find a match
-            var transactions = await _context.DepositTransactions
+            var transaction = await _context.DepositTransactions
                 .Where(t => t.UserId == userId)
-                .ToListAsync();
-            
-            var transaction = transactions.FirstOrDefault(t => t.Reference != null && _referenceProtector.Unprotect(t.Reference) == reference);
+                .OrderByDescending(t => t.Timestamp) // The newest
+                .Take(10) // Take 10 to be searched for faster searching with indexing
+                .FirstOrDefaultAsync(t => t.Reference != null && t.ReferenceHash == referenceHash);
             
             if (transaction == null)
+                return DepositResult.TransactionNotFound;
+            
+            // Verify the full reference by decrypting
+            if (_referenceProtector.Unprotect(transaction.Reference) != reference)
                 return DepositResult.TransactionNotFound;
 
             // Verify deposit transaction
@@ -201,6 +212,12 @@ namespace Digital_Wallet_System.Services
                 .Where(t => t.RecipientId == userId & t.TransactionType == "Credit")
                 .OrderByDescending(t => t.Timestamp)
                 .ToListAsync();
+        }
+
+        private string ComputeHash(string input)
+        {
+            byte[] bytes = SHA256.HashData(Encoding.UTF8.GetBytes(input));
+            return Convert.ToBase64String(bytes);
         }
 
         // Standard responses for deposits
