@@ -1,6 +1,6 @@
 namespace Digital_Wallet_System.Models
 {
-    public class Transaction
+    public class TransferTransaction
     {
         public int Id { get; set; }
         public int SenderId { get; set; }

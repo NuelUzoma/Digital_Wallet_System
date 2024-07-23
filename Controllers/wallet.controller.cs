@@ -67,9 +67,9 @@ namespace Digital_Wallet_System.Controllers
             return Ok(wallet);
         }
 
-        // Deposit funds into one's wallet
-        [HttpPost("deposit")]
-        public async Task<IActionResult> Deposit([FromBody] DepositRequest request)
+        // Initiate paystack deposit
+        [HttpPost("initiate-deposit")]
+        public async Task<IActionResult> InitiateDeposit([FromBody] DepositRequest request)
         {
             // Retrieve userId
             var userIdResult = GetUserId();
@@ -82,13 +82,43 @@ namespace Digital_Wallet_System.Controllers
             // Integer value for the userId
             int userId = userIdResult.Value;
 
-            var depositResult = await _walletService.DepositFundsAsync(userId, request.Amount);
+            try
+            {
+                // Initiate the deposit
+                var (paymentUrl, reference) = await _walletService.InitiateDepositAsync(userId, request.Amount);
+
+                return Ok(new { PaymentUrl = paymentUrl, Reference = reference });
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(ex.Message);
+            }
+        }
+
+        // Verify deposit & fund the wallet
+        [HttpPost("verify-deposit")]
+        public async Task<IActionResult> Deposit([FromBody] VerifyDepositRequest request)
+        {
+            // Retrieve userId
+            var userIdResult = GetUserId();
+            
+            if (userIdResult.Result is UnauthorizedObjectResult || userIdResult.Result is BadRequestObjectResult)
+            {
+                return userIdResult.Result; // Return the error result
+            }
+
+            // Integer value for the userId
+            int userId = userIdResult.Value;
+
+            var depositResult = await _walletService.VerifyandCompleteDepositAsync(request.Reference, userId);
             
             return depositResult switch
             {
                 DepositResult.Success => Ok(new { message = "Deposit Successful" }),
                 DepositResult.UserNotFound => NotFound("User not found"),
                 DepositResult.InvalidAmount => BadRequest("Invalid deposit amount"),
+                DepositResult.TransactionNotFound => NotFound("Transaction not found"),
+                DepositResult.PaymentFailed => BadRequest("Payment failed"),
                 DepositResult.UnknownError => StatusCode(500, "An unexpected error occurred"),
                 _ => StatusCode(500, "An unexpected error occurred"),
             };
@@ -129,6 +159,26 @@ namespace Digital_Wallet_System.Controllers
                 TransferResult.UnknownError => StatusCode(500, "An unexpected error occurred"),
                 _ => StatusCode(500, "An unexpected error occurred"),
             };
+        }
+
+        // Retrieve wallet deposit transactions
+        [HttpGet("transactions/deposit")]
+        public async Task<IActionResult> GetDepositTransactions()
+        {
+            // Retrieve userId
+            var userIdResult = GetUserId();
+            
+            if (userIdResult.Result is UnauthorizedObjectResult || userIdResult.Result is BadRequestObjectResult)
+            {
+                return userIdResult.Result; // Return the error result
+            }
+
+            // Integer value for the userId
+            int userId = userIdResult.Value;
+
+            var deposits = await _walletService.GetDepositTransactionsAsync(userId);
+
+            return Ok(deposits);
         }
 
         // Retrieve debit wallet transfer transactions

@@ -4,4 +4,9 @@ namespace Digital_Wallet_System.Dtos
     {
         public decimal Amount { get; set; }
     }
+
+    public class VerifyDepositRequest
+    {
+        public required string Reference { get; set; }
+    }
 }

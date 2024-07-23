@@ -1,7 +1,7 @@
 using Microsoft.EntityFrameworkCore;
+using StackExchange.Redis;
 using Digital_Wallet_System.Data;
 using Digital_Wallet_System.Models;
-using StackExchange.Redis;
 
 namespace Digital_Wallet_System.Services
 {
@@ -9,11 +9,15 @@ namespace Digital_Wallet_System.Services
     {
         private readonly ApplicationDbContext _context;
         private readonly RedisService _redisService;
+        private readonly PaystackService _paystackService;
+        private readonly ReferenceProtector _referenceProtector;
 
-        public WalletService(ApplicationDbContext context, RedisService redisService)
+        public WalletService(ApplicationDbContext context, RedisService redisService, PaystackService paystackService, ReferenceProtector referenceProtector)
         {
             _context = context;
             _redisService = redisService;
+            _paystackService = paystackService;
+            _referenceProtector = referenceProtector;
         }
 
         public async Task<Wallet> CreateWalletAsync(User user)
@@ -31,23 +35,73 @@ namespace Digital_Wallet_System.Services
             return wallet;
         }
 
-        // Deposit funds logic
-        public async Task<DepositResult> DepositFundsAsync(int userId, decimal amount)
+        // Initiate paystack deposit
+        public async Task<(string, string)> InitiateDepositAsync(int userId, decimal amount)
         {
-            var user = await _context.Users.Include(u => u.Wallet).FirstOrDefaultAsync(u => u.Id == userId);
-            
-            if (user == null)
-                return DepositResult.UserNotFound;
-            if (amount <= 0 || amount % 1 != 0) // Validate amount to be transfered
-                return DepositResult.InvalidAmount;
+            var user = await _context.Users.Include(u => u.Wallet).FirstOrDefaultAsync(u => u.Id == userId) ?? throw new ArgumentException("User not found");
+            var response = await _paystackService.InitializeTransaction(amount, user.Email);
 
-            // Perform the deposit
-            user.Wallet.Balance += amount;
+            if (amount <= 0 || amount % 1 != 0) // Validate amount to be deposited
+                throw new InvalidOperationException("Invalid Deposit Amount");
 
-            // Save changes
+            var encryptedReference = _referenceProtector.Protect(response.Data.Reference);
+
+            // Store pending transaction
+            var transaction = new DepositTransaction
+            {
+                UserId = userId,
+                Amount = amount,
+                Timestamp = DateTime.UtcNow.AddHours(1),
+                TransactionType = "Deposit",
+                Status = "Pending",
+                Reference = encryptedReference
+            };
+
+            _context.DepositTransactions.Add(transaction);
             await _context.SaveChangesAsync();
+
+            // Return the authorization url and original (unencrypted) reference
+            return (response.Data.AuthorizationUrl, response.Data.Reference);
+        }
+
+        // Verify paystack deposit logic
+        public async Task<DepositResult> VerifyandCompleteDepositAsync(string reference, int userId)
+        {
+            // Decrypt all references in the database to find a match
+            var transactions = await _context.DepositTransactions
+                .Where(t => t.UserId == userId)
+                .ToListAsync();
             
-            return DepositResult.Success;
+            var transaction = transactions.FirstOrDefault(t => t.Reference != null && _referenceProtector.Unprotect(t.Reference) == reference);
+            
+            if (transaction == null)
+                return DepositResult.TransactionNotFound;
+
+            // Verify deposit transaction
+            var verificationResponse = await _paystackService.VerifyTransaction(reference);
+
+            if (verificationResponse.Data.Status == "success")
+            {
+                var user = await _context.Users.Include(u => u.Wallet).FirstOrDefaultAsync(u => u.Id == transaction.UserId);
+
+                if (user == null)
+                    return DepositResult.UserNotFound;
+
+                // Perform the deposit
+                user.Wallet.Balance += transaction.Amount;
+                transaction.Status = "Completed";
+
+                // Save changes
+                await _context.SaveChangesAsync();
+
+                return DepositResult.Success;
+            }
+            else
+            {
+                transaction.Status = "Failed";
+                await _context.SaveChangesAsync();
+                return DepositResult.PaymentFailed;
+            }
         }
 
         // Wallet transfer logic
@@ -85,27 +139,27 @@ namespace Digital_Wallet_System.Services
                 recipient.Wallet.Balance += amount;
 
                 // Create sender's transaction
-                var senderTransaction = new Transaction
+                var senderTransaction = new TransferTransaction
                 {
                     SenderId = senderId,
                     RecipientId = recipientId,
                     Amount = amount,
-                    Timestamp = DateTime.UtcNow,
+                    Timestamp = DateTime.UtcNow.AddHours(1),
                     TransactionType = "Debit"
                 };
 
                 // Create receiver's transaction
-                var recipientTransaction = new Transaction
+                var recipientTransaction = new TransferTransaction
                 {
                     SenderId = senderId,
                     RecipientId = recipientId,
                     Amount = amount,
-                    Timestamp = DateTime.UtcNow,
+                    Timestamp = DateTime.UtcNow.AddHours(1),
                     TransactionType = "Credit"
                 };
 
-                _context.Transactions.Add(senderTransaction);
-                _context.Transactions.Add(recipientTransaction);
+                _context.TransferTransactions.Add(senderTransaction);
+                _context.TransferTransactions.Add(recipientTransaction);
 
                 // If successful, set the idempotency key in Redis with a 30-second expiry
                 await redis.StringSetAsync(idempotencyKey, "processed", TimeSpan.FromSeconds(30));
@@ -122,19 +176,28 @@ namespace Digital_Wallet_System.Services
             }
         }
 
-        // Get debit transactions by userId
-        public async Task<IEnumerable<Transaction>> GetDebitTransactionsAsync(int userId)
+        // Get user's deposit transactions
+        public async Task<IEnumerable<DepositTransaction>> GetDepositTransactionsAsync(int userId)
         {
-            return await _context.Transactions
+            return await _context.DepositTransactions
+                .Where(d => d.UserId == userId)
+                .OrderByDescending(d => d.Timestamp)
+                .ToListAsync();
+        }
+
+        // Get debit transactions by userId
+        public async Task<IEnumerable<TransferTransaction>> GetDebitTransactionsAsync(int userId)
+        {
+            return await _context.TransferTransactions
                 .Where(t => t.SenderId == userId & t.TransactionType == "Debit")
                 .OrderByDescending(t => t.Timestamp)
                 .ToListAsync();
         }
 
         // Get credit transactions by userId
-        public async Task<IEnumerable<Transaction>> GetCreditTransactionsAsync(int userId)
+        public async Task<IEnumerable<TransferTransaction>> GetCreditTransactionsAsync(int userId)
         {
-            return await _context.Transactions
+            return await _context.TransferTransactions
                 .Where(t => t.RecipientId == userId & t.TransactionType == "Credit")
                 .OrderByDescending(t => t.Timestamp)
                 .ToListAsync();
@@ -145,7 +208,9 @@ namespace Digital_Wallet_System.Services
         {
             Success,
             UserNotFound,
+            TransactionNotFound,
             InvalidAmount,
+            PaymentFailed,
             UnknownError
         }
 

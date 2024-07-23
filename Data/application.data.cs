@@ -11,7 +11,8 @@ namespace Digital_Wallet_System.Data
 
         public DbSet<User> Users { get; set; }
         public DbSet<Wallet> Wallets { get; set; }
-        public DbSet<Transaction> Transactions { get; set; }
+        public DbSet<TransferTransaction> TransferTransactions { get; set; }
+        public DbSet<DepositTransaction> DepositTransactions { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -34,16 +35,23 @@ namespace Digital_Wallet_System.Data
                 .HasForeignKey<Wallet>(w => w.UserId);
             
             // Transaction relationships
-            modelBuilder.Entity<Transaction>()
+            modelBuilder.Entity<TransferTransaction>()
                 .HasOne(t => t.Sender)
                 .WithMany()
                 .HasForeignKey(t => t.SenderId)
                 .OnDelete(DeleteBehavior.Restrict);
 
-            modelBuilder.Entity<Transaction>()
+            modelBuilder.Entity<TransferTransaction>()
                 .HasOne(t => t.Recipient)
                 .WithMany()
                 .HasForeignKey(t => t.RecipientId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            // Deposit-Transaction relationships
+            modelBuilder.Entity<DepositTransaction>()
+                .HasOne(d => d.User)
+                .WithMany()
+                .HasForeignKey(d => d.UserId)
                 .OnDelete(DeleteBehavior.Restrict);
             
             // Specifying the precision and scale for the Balance property
@@ -52,7 +60,12 @@ namespace Digital_Wallet_System.Data
                 .HasColumnType("decimal(18,2)");
 
             // Specifying the precision and scale for the Amount property
-            modelBuilder.Entity<Transaction>()
+            modelBuilder.Entity<TransferTransaction>()
+                .Property(t => t.Amount)
+                .HasColumnType("decimal(18,2)");
+            
+            // Specifying the precision and scale for the Amount property
+            modelBuilder.Entity<DepositTransaction>()
                 .Property(t => t.Amount)
                 .HasColumnType("decimal(18,2)");
         }

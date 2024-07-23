@@ -25,8 +25,11 @@ internal class Program
         builder.Services.AddDbContext<ApplicationDbContext>(options => options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
 
         // Registering the services due to dependency injection
+        builder.Services.AddDataProtection();
         builder.Services.AddScoped<WalletService>();
         builder.Services.AddSingleton<RedisService>();
+        builder.Services.AddScoped<PaystackService>();
+        builder.Services.AddSingleton<ReferenceProtector>();
 
         // Configuring JWT Authentication
         var jwtKey = builder.Configuration["Jwt:Key"]; // JWT Key

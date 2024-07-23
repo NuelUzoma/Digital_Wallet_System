@@ -171,3 +171,7 @@ Properties/
 .config/
 *.http
 .editorconfig
+
+# App Settings
+appsettings.json
+appsettings.Development.json
