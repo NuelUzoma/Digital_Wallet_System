@@ -29,6 +29,38 @@ The Digital Wallet System is a secure and efficient platform that allows users t
 - Redis
 - Paystack Account (for payment integration)
 
+
+## Database Design
+
+Digital Wallet System uses a relational database with the following structure:
+
+### Entities
+
+| Entity | Attributes |
+|--------|------------|
+| User   | - Id (int, primary key)<br>- Username (string, unique)<br>- Email (string, unique)<br>- Password (string) |
+| Wallet | - Id (int, primary key)<br>- Balance (decimal)<br>- UserId (int, foreign key to User) |
+| DepositTransaction | - Id (int, primary key)<br>- UserId (int, foreign key to User)<br>- Amount (decimal)<br>- Timestamp (DateTime)<br>- Status (string)<br>- Reference (string)<br>- ReferenceHash (string)<br>- TransactionType (string) |
+| TransferTransaction | - Id (int, primary key)<br>- SenderId (int, foreign key to User)<br>- RecipientId (int, foreign key to User)<br>- Amount (decimal)<br>- Timestamp (DateTime)<br>- TransactionType (string) |
+
+### Relationships
+
+| Relationship | Description |
+|--------------|-------------|
+| User <-> Wallet | One-to-One |
+| User -> DepositTransaction | One-to-Many |
+| User -> TransferTransaction (as Sender) | One-to-Many |
+| User -> TransferTransaction (as Recipient) | One-to-Many |
+
+### Constraints and Behaviors
+
+| Type | Description |
+|------|-------------|
+| Unique Constraints | - Username in User table<br>- Email in User table |
+| Foreign Key Constraints | - Wallet.UserId to User.Id<br>- DepositTransaction.UserId to User.Id<br>- TransferTransaction.SenderId to User.Id<br>- TransferTransaction.RecipientId to User.Id |
+| Delete Behavior | Restrict delete on User for related TransferTransactions and DepositTransactions |
+
+
 ## Getting Started
 
 ### Clone the Repository
